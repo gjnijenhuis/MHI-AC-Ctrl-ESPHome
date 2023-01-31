@@ -222,7 +222,7 @@ public:
             // dtostrf((value - 61) / 4.0, 0, 2, strtmp);
             // output_P(status, PSTR(TOPIC_TROOM), strtmp);
             this->current_temperature = ((value - 61) / 4.0);
-            this->current_temperature = this->current_temperature - mhi_ac_ctrl_core.get_troom_offset();
+            this->current_temperature = this->current_temperature - mhi_ac_ctrl_core.get_troom_offset() - 3;
             ESP_LOGD("mhi_ac_ctrl", "status_troom received: %f with already substracted offset: %f", this->current_temperature, mhi_ac_ctrl_core.get_troom_offset());
             this->publish_state();
             break;
@@ -408,7 +408,7 @@ public:
     }
 
     void set_room_temperature(float value) {
-        value = value + mhi_ac_ctrl_core.get_troom_offset() ;  // increase Troom with current offset to compensate higher setpoint
+        value = value + mhi_ac_ctrl_core.get_troom_offset() + 3;  // increase Troom with current offset to compensate higher setpoint
         if ((value > -10) & (value < 48)) {
             room_temp_api_timeout_ms = millis();  // reset timeout
             byte tmp = value*4+61;
@@ -526,7 +526,7 @@ protected:
         return traits;
     }
 
-    float minimum_temperature_ { 18.0f };
+    float minimum_temperature_ { 10.0f };
     float maximum_temperature_ { 30.0f };
     float temperature_step_ { 0.5f };
 
