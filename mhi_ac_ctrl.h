@@ -21,8 +21,7 @@ public:
             // restore from defaults
             this->mode = climate::CLIMATE_MODE_OFF;
             // initialize target temperature to some value so that it's not NAN
-            this->target_temperature = roundf(clamp(
-                this->current_temperature, this->minimum_temperature_, this->maximum_temperature_));
+            this->target_temperature = clamp(this->current_temperature, this->minimum_temperature_, this->maximum_temperature_);
             this->fan_mode = climate::CLIMATE_FAN_AUTO;
             this->swing_mode = climate::CLIMATE_SWING_OFF;
         }
@@ -39,6 +38,32 @@ public:
         return_air_temperature_.set_icon("mdi:thermometer");
         return_air_temperature_.set_unit_of_measurement("°C");
         return_air_temperature_.set_accuracy_decimals(2);
+             
+        thi_r1_.set_icon("mdi:thermometer");
+        thi_r1_.set_unit_of_measurement("°C");
+        thi_r1_.set_accuracy_decimals(2);
+        
+        thi_r2_.set_icon("mdi:thermometer");
+        thi_r2_.set_unit_of_measurement("°C");
+        thi_r2_.set_accuracy_decimals(2);
+        
+        thi_r3_.set_icon("mdi:thermometer");
+        thi_r3_.set_unit_of_measurement("°C");
+        thi_r3_.set_accuracy_decimals(2);
+        
+        tho_r1_.set_icon("mdi:thermometer");
+        tho_r1_.set_unit_of_measurement("°C");
+        tho_r1_.set_accuracy_decimals(2);
+        
+        tdsh_.set_icon("mdi:air-filter");
+        tdsh_.set_unit_of_measurement("°C");
+        tdsh_.set_accuracy_decimals(1);
+
+        opdata_Tsetpoint_.set_icon("mdi:thermometer");
+        opdata_Tsetpoint_.set_unit_of_measurement("°C");
+        opdata_Tsetpoint_.set_accuracy_decimals(1);
+
+        fan_speed_.set_icon("mdi:fan");
 
         outdoor_unit_fan_speed_.set_icon("mdi:fan");
 
@@ -90,6 +115,9 @@ public:
 
     void cbiStatusFunction(ACStatus status, int value) override
     {
+        float tmp_value;
+        float offset = mhi_ac_ctrl_core.get_troom_offset();
+        
         static int mode_tmp = 0xff;
         ESP_LOGD("mhi_ac_ctrl", "received status=%i value=%i power=%i", status, value, this->power_);
 
@@ -155,16 +183,23 @@ public:
             switch (value) {
             case 0:
                 this->fan_mode = climate::CLIMATE_FAN_LOW;
+                fan_speed_.publish_state("1");
                 break;
             case 1:
+                this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
+                fan_speed_.publish_state("2");
+                break;
             case 2:
                 this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
+                fan_speed_.publish_state("3");
                 break;
             case 6:
                 this->fan_mode = climate::CLIMATE_FAN_HIGH;
+                fan_speed_.publish_state("4");
                 break;
             case 7:
                 this->fan_mode = climate::CLIMATE_FAN_AUTO;
+                fan_speed_.publish_state("Auto");
                 break;
             }
             this->publish_state();
@@ -186,14 +221,28 @@ public:
         case status_troom:
             // dtostrf((value - 61) / 4.0, 0, 2, strtmp);
             // output_P(status, PSTR(TOPIC_TROOM), strtmp);
-            this->current_temperature = (value - 61) / 4.0;
+            this->current_temperature = ((value - 61) / 4.0);
+            this->current_temperature = this->current_temperature - mhi_ac_ctrl_core.get_troom_offset();
+            ESP_LOGD("mhi_ac_ctrl", "status_troom received: %f with already substracted offset: %f", this->current_temperature, mhi_ac_ctrl_core.get_troom_offset());
             this->publish_state();
             break;
         case status_tsetpoint:
             // itoa(value, strtmp, 10);
             // output_P(status, PSTR(TOPIC_TSETPOINT), strtmp);
+          
+            tmp_value = (value & 0x7f)/ 2.0;
+            offset = round(tmp_value) - tmp_value;  // Calculate offset when setpoint is changed
+            mhi_ac_ctrl_core.set_troom_offset(offset);
+            ESP_LOGD("mhi_ac_ctrl", "set_troom_offset: %f Target temperature: %f", offset, tmp_value);
+          
             this->target_temperature = (value & 0x7f)/ 2.0;
             this->publish_state();
+            break;
+        case erropdata_tsetpoint:
+        case opdata_tsetpoint:
+            // dtostrf((value & 0x7f)/ 2.0, 0, 1, strtmp);
+            // output_P(status, PSTR(TOPIC_TSETPOINT), strtmp);
+            opdata_Tsetpoint_.publish_state((value & 0x7f) / 2.0);
             break;
         case status_errorcode:
         case erropdata_errorcode:
@@ -203,24 +252,33 @@ public:
             break;
         case opdata_return_air:
         case erropdata_return_air:
-            // dtostrf(value * 0.25f - 15, 0, 2, strtmp);
+            // dtostrf((value - 61) / 4.0, 0, 2, strtmp);
             // output_P(status, PSTR(TOPIC_RETURNAIR), strtmp);
-            return_air_temperature_.publish_state(value * 0.25f - 15);
+            return_air_temperature_.publish_state((value - 61) / 4.0);
             break;
         case opdata_thi_r1:
         case erropdata_thi_r1:
+            // 20221116 activated
             // itoa(0.327f * value - 11.4f, strtmp, 10); // only rough approximation
             // output_P(status, PSTR(TOPIC_THI_R1), strtmp);
+            thi_r1_.publish_state(value * 0.327f - 11.4f);
+            //this->publish_state();
             break;
         case opdata_thi_r2:
         case erropdata_thi_r2:
+            // 20221116 activated
             // itoa(0.327f * value - 11.4f, strtmp, 10); // formula for calculation not known
             // output_P(status, PSTR(TOPIC_THI_R2), strtmp);
+            thi_r2_.publish_state(value * 0.327f - 11.4f);
+            //this->publish_state();
             break;
         case opdata_thi_r3:
         case erropdata_thi_r3:
+            // 20221116 activated
             // itoa(0.327f * value - 11.4f, strtmp, 10); // only rough approximation
             // output_P(status, PSTR(TOPIC_THI_R3), strtmp);
+            thi_r3_.publish_state(value * 0.327f - 11.4f);
+            //this->publish_state();
             break;
         case opdata_iu_fanspeed:
         case erropdata_iu_fanspeed:
@@ -242,8 +300,10 @@ public:
             break;
         case opdata_tho_r1:
         case erropdata_tho_r1:
+            // 20221116 activated
             // itoa(0.327f * value - 11.4f, strtmp, 10); // formula for calculation not known
             // output_P(status, PSTR(TOPIC_THO_R1), strtmp);
+            tho_r1_.publish_state(value * 0.327f - 11.4f);
             break;
         case opdata_comp:
         case erropdata_comp:
@@ -262,13 +322,19 @@ public:
             break;
         case opdata_ct:
         case erropdata_ct:
+            // 20221116 changed
             // dtostrf(value * 14 / 51.0f, 0, 2, strtmp);
             // output_P(status, PSTR(TOPIC_CT), strtmp);
+            //this->current_power = (value * 14 / 51.0f);
+            //this->publish_state();
             current_power_.publish_state(value * 14 / 51.0f);
             break;
         case opdata_tdsh:
             // itoa(value, strtmp, 10); // formula for calculation not known
             // output_P(status, PSTR(TOPIC_TDSH), strtmp);
+            // 20221118 publish uitgezet en nu alleen via een YAML techSenor te publiseren
+            //this->tdsh_ = {value * 0.327f - 11.4f};            
+            tdsh_.publish_state(value * 0.327f - 11.4f);
             break;
         case opdata_protection_no:
             // itoa(value, strtmp, 10);
@@ -298,8 +364,8 @@ public:
             // itoa(value, strtmp, 10);
             // output_P(status, PSTR(TOPIC_OU_EEV1), strtmp);
             break;
-        case opdata_tsetpoint:
-        case erropdata_tsetpoint:
+//        case opdata_tsetpoint:
+//        case erropdata_tsetpoint:
         case opdata_0x94:
         case opdata_unknown:
             // skip these values as they are not used currently
@@ -321,23 +387,44 @@ public:
             &vanes_pos_
         };
     }
-
+    
+    std::vector<Sensor *> get_tech_sensors() {
+        return {
+            &thi_r1_,
+            &thi_r2_,
+            &thi_r3_,
+            &tho_r1_,
+            &tdsh_,
+            &opdata_Tsetpoint_
+        };
+    }
+    
     std::vector<BinarySensor *> get_binary_sensors() {
         return { &defrost_ };
     }
 
+    std::vector<TextSensor *> get_text_sensors() {
+        return { &fan_speed_ };
+    }
+
     void set_room_temperature(float value) {
+        value = value + mhi_ac_ctrl_core.get_troom_offset() ;  // increase Troom with current offset to compensate higher setpoint
         if ((value > -10) & (value < 48)) {
             room_temp_api_timeout_ms = millis();  // reset timeout
             byte tmp = value*4+61;
-            mhi_ac_ctrl_core.set_troom(value*4+61);
-            ESP_LOGD("mhi_ac_ctrl", "set room_temp_api: %f %i %i", value, (byte)(value*4+61), (byte)tmp);
+            mhi_ac_ctrl_core.set_troom(tmp);
+            ESP_LOGD("mhi_ac_ctrl", "set room_temp_api: %f %i with already added offset: %f Resulting set_troom: %f", value, (byte)tmp, mhi_ac_ctrl_core.get_troom_offset(), (float)((tmp - 61) / 4.0));
         }
     }
 
     void set_vanes(int value) {
         mhi_ac_ctrl_core.set_vanes(value);
         ESP_LOGD("mhi_ac_ctrl", "set vanes: %i", value);
+    }
+
+    void set_fan(int value) {
+        mhi_ac_ctrl_core.set_fan(value);
+        ESP_LOGD("mhi_ac_ctrl", "set fan: %i", value);
     }
 
 protected:
@@ -377,10 +464,10 @@ protected:
         if (call.get_target_temperature().has_value()) {
             this->target_temperature = *call.get_target_temperature();
 
-            tsetpoint_ = (uint)roundf(
-                clamp(this->target_temperature, minimum_temperature_, maximum_temperature_));
+            tsetpoint_ = (float)clamp(this->target_temperature, minimum_temperature_, maximum_temperature_);
 
             mhi_ac_ctrl_core.set_tsetpoint((byte)(2 * tsetpoint_));
+            ESP_LOGD("mhi_ac_ctrl", "Control target_temperature: %f set_tsetpoint: %f", this->target_temperature, tsetpoint_);
         }
 
         if (call.get_fan_mode().has_value()) {
@@ -441,11 +528,11 @@ protected:
 
     float minimum_temperature_ { 18.0f };
     float maximum_temperature_ { 30.0f };
-    float temperature_step_ { 1.0f };
+    float temperature_step_ { 0.5f };
 
     ACPower power_;
     ACMode mode_;
-    uint tsetpoint_;
+    float tsetpoint_;
     uint fan_;
     ACVanes vanes_;
 
@@ -462,4 +549,12 @@ protected:
     Sensor current_power_;
     BinarySensor defrost_;
     Sensor vanes_pos_;
+    Sensor thi_r1_;
+    Sensor thi_r2_;
+    Sensor thi_r3_;
+    Sensor tho_r1_;
+    Sensor tdsh_;
+    Sensor opdata_Tsetpoint_;
+    TextSensor fan_speed_;
+    
 };
