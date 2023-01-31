@@ -34,6 +34,7 @@ globals:
     initial_value: '120'
 
 ota:
+  password: !secret ota_password
 
 climate:
   - platform: custom
@@ -47,6 +48,9 @@ climate:
         id: ${deviceid}
 
 api:
+  password: !secret api_password
+  encryption:
+    key: !secret api_encryption_key
   reboot_timeout: 0s
   services:
     # Call the set_api_room_temperature service from HA to override the room temperature
@@ -57,15 +61,6 @@ api:
       then:
         - lambda: |-
             return ((MhiAcCtrl*)id(${deviceid}))->set_room_temperature(value);
-    # Call the set_vanes service from HA to set the vane position
-    # Needed because the ESPHome Climate class does not support this natively
-    # Possible values: 1-4: static positions, 5: swing, 0: unknown
-    - service: set_vanes
-      variables:
-        value: int
-      then:
-        - lambda: |-
-            return ((MhiAcCtrl*)id(${deviceid}))->set_vanes(value);
 
 sensor:
   - platform: uptime
@@ -89,7 +84,17 @@ sensor:
       - name: ${devicename} compressor frequency
       - name: ${devicename} indoor unit total run time
       - name: ${devicename} compressor total run time
-      - name: ${devicename} vanes
+
+  - platform: custom
+    lambda: |-
+      return ((MhiAcCtrl*)id(${deviceid}))->get_tech_sensors();
+    sensors:
+      - name: ${devicename} THI R1 temperature
+      - name: ${devicename} THI R2 temperature
+      - name: ${devicename} THI R3 temperature
+      - name: ${devicename} THO R1 temperature
+      - name: ${devicename} TDSH temperature
+      - name: ${devicename} OpData Tsetpoint temperature
 
 binary_sensor:
   - platform: custom
