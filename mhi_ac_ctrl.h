@@ -99,6 +99,8 @@ public:
             ESP_LOGD("mhi_ac_ctrl", "did not receive a room_temp_api value, using IU temperature sensor");
         }
 
+        update_offset(false);
+
         int ret = mhi_ac_ctrl_core.loop(100);
         if (ret < 0)
             ESP_LOGW("mhi_ac_ctrl", "mhi_ac_ctrl_core.loop error: %i", ret);
@@ -222,27 +224,22 @@ public:
             // dtostrf((value - 61) / 4.0, 0, 2, strtmp);
             // output_P(status, PSTR(TOPIC_TROOM), strtmp);
             this->current_temperature = ((value - 61) / 4.0);
-            this->current_temperature = this->current_temperature - mhi_ac_ctrl_core.get_troom_offset() - 3;
+            this->current_temperature = this->current_temperature - mhi_ac_ctrl_core.get_troom_offset();
             ESP_LOGD("mhi_ac_ctrl", "status_troom received: %f with already substracted offset: %f", this->current_temperature, mhi_ac_ctrl_core.get_troom_offset());
             this->publish_state();
             break;
         case status_tsetpoint:
             // itoa(value, strtmp, 10);
             // output_P(status, PSTR(TOPIC_TSETPOINT), strtmp);
-          
-            tmp_value = (value & 0x7f)/ 2.0;
-            offset = round(tmp_value) - tmp_value;  // Calculate offset when setpoint is changed
-            mhi_ac_ctrl_core.set_troom_offset(offset);
-            ESP_LOGD("mhi_ac_ctrl", "set_troom_offset: %f Target temperature: %f", offset, tmp_value);
-          
             this->target_temperature = (value & 0x7f)/ 2.0;
             this->publish_state();
+            update_offset(true);
             break;
         case erropdata_tsetpoint:
         case opdata_tsetpoint:
             // dtostrf((value & 0x7f)/ 2.0, 0, 1, strtmp);
             // output_P(status, PSTR(TOPIC_TSETPOINT), strtmp);
-            opdata_Tsetpoint_.publish_state((value & 0x7f) / 2.0);
+            opdata_Tsetpoint_.publish_state((value & 0x7f) / 2.0);            
             break;
         case status_errorcode:
         case erropdata_errorcode:
@@ -408,7 +405,7 @@ public:
     }
 
     void set_room_temperature(float value) {
-        value = value + mhi_ac_ctrl_core.get_troom_offset() + 3;  // increase Troom with current offset to compensate higher setpoint
+        value = value + mhi_ac_ctrl_core.get_troom_offset();  // increase Troom with current offset to compensate higher setpoint
         if ((value > -10) & (value < 48)) {
             room_temp_api_timeout_ms = millis();  // reset timeout
             byte tmp = value*4+61;
@@ -425,6 +422,27 @@ public:
     void set_fan(int value) {
         mhi_ac_ctrl_core.set_fan(value);
         ESP_LOGD("mhi_ac_ctrl", "set fan: %i", value);
+    }
+
+    void update_offset(bool force) {
+        float current_offset = mhi_ac_ctrl_core.get_troom_offset();
+        float opdata_tsetpoint = opdata_Tsetpoint_.get_state();               
+        float tsetpoint = this->target_temperature;
+
+        // Calculate the new offset. This is the delta between the requested setpoint and the internal setpoint
+        // This automatically compensates for any differences, including the 0.5C enhanced resolution
+        float new_offset = opdata_tsetpoint - tsetpoint; 
+        
+        if (force || new_offset != current_offset) {
+            ESP_LOGD("mhi_ac_ctrl", "Offset Update:");
+            ESP_LOGD("mhi_ac_ctrl", "Requested Temperature Setpoint: %f", tsetpoint);
+            ESP_LOGD("mhi_ac_ctrl", "Internal  Temperature Setpoint: %f", opdata_tsetpoint);
+            ESP_LOGD("mhi_ac_ctrl", "Current offset: %f", current_offset);
+            ESP_LOGD("mhi_ac_ctrl", "New offset: %f", new_offset);
+
+            mhi_ac_ctrl_core.set_troom_offset(new_offset);
+            ESP_LOGD("mhi_ac_ctrl", "set_troom_offset: %f", new_offset);
+        }        
     }
 
 protected:
